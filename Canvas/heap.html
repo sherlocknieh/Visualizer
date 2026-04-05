@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>堆可视化 - 逻辑增强版</title>
+    <style>
+        :root {
+            --node-size: 42px;
+            --primary: #3498db;
+            --accent: #e74c3c;
+            --success: #2ecc71;
+            --line-color: #ecf0f1;
+            --anim-speed: 0.6s;
+        }
+        body { font-family: system-ui; display: flex; flex-direction: column; align-items: center; background: #f0f2f5; padding: 20px; }
+        .controls { margin: 20px; padding: 15px; background: white; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); display: flex; gap: 10px; }
+        input { padding: 8px; width: 70px; border: 2px solid #ddd; border-radius: 6px; text-align: center; font-weight: bold; font-size: 1.1em; }
+        button { padding: 8px 16px; cursor: pointer; border: none; border-radius: 6px; color: white; font-weight: bold; transition: 0.2s; }
+        #pushBtn { background: var(--primary); }
+        #popBtn { background: #e67e22; }
+        button:disabled { background: #bdc3c7; cursor: not-allowed; opacity: 0.7; }
+        
+        #canvas {
+            position: relative;
+            width: 800px;
+            height: 450px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .node {
+            position: absolute;
+            width: var(--node-size);
+            height: var(--node-size);
+            background: var(--primary);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            z-index: 10;
+            /* 只有位置和颜色有过渡，缩放用 transform */
+            transition: left var(--anim-speed) cubic-bezier(0.4, 0, 0.2, 1), 
+                        top var(--anim-speed) cubic-bezier(0.4, 0, 0.2, 1), 
+                        background-color 0.3s;
+        }
+        
+        .line {
+            position: absolute;
+            background: var(--line-color);
+            height: 3px;
+            transform-origin: left center;
+            z-index: 1;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>最大堆可视化 (标准 Push / 覆盖 Pop)</h2>
+    <div class="controls">
+        <input type="number" id="valInput">
+        <button id="pushBtn" onclick="handlePush()">插入 (Push)</button>
+        <button id="popBtn" onclick="handlePop()">取出堆顶 (Pop)</button>
+    </div>
+    <div id="canvas">
+        <div id="line-layer"></div>
+        <div id="node-layer"></div>
+    </div>
+
+<script>
+    let heap = []; 
+    let nodeCounter = 0;
+    const inputEl = document.getElementById('valInput');
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    function setRandomValue() {
+        inputEl.value = Math.floor(Math.random() * 90) + 10;
+    }
+    setRandomValue();
+
+    function getPos(index) {
+        const level = Math.floor(Math.log2(index + 1));
+        const posInLevel = index - (Math.pow(2, level) - 1);
+        const sectionWidth = 800 / Math.pow(2, level);
+        return {
+            x: sectionWidth * posInLevel + sectionWidth / 2 - 21,
+            y: level * 80 + 50
+        };
+    }
+
+    function updateLines() {
+        const layer = document.getElementById('line-layer');
+        layer.innerHTML = '';
+        for (let i = 1; i < heap.length; i++) {
+            const pIdx = Math.floor((i - 1) / 2);
+            const start = getPos(pIdx);
+            const end = getPos(i);
+            const line = document.createElement('div');
+            line.className = 'line';
+            const dx = end.x - start.x, dy = end.y - start.y;
+            line.style.width = `${Math.sqrt(dx*dx + dy*dy)}px`;
+            line.style.left = `${start.x + 21}px`;
+            line.style.top = `${start.y + 21}px`;
+            line.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+            layer.appendChild(line);
+        }
+    }
+
+    async function swap(i, j) {
+        [heap[i], heap[j]] = [heap[j], heap[i]];
+        const domI = document.getElementById(`node-${heap[i].id}`);
+        const domJ = document.getElementById(`node-${heap[j].id}`);
+        const posI = getPos(i), posJ = getPos(j);
+        
+        domI.style.backgroundColor = 'var(--accent)';
+        domJ.style.backgroundColor = 'var(--accent)';
+        
+        domI.style.left = `${posI.x}px`; domI.style.top = `${posI.y}px`;
+        domJ.style.left = `${posJ.x}px`; domJ.style.top = `${posJ.y}px`;
+        
+        await sleep(600);
+        domI.style.backgroundColor = '';
+        domJ.style.backgroundColor = '';
+    }
+
+    async function handlePush() {
+        const val = parseInt(inputEl.value);
+        if (isNaN(val)) return;
+        setBtnState(true);
+
+        const id = nodeCounter++;
+        const index = heap.length;
+        
+        // 1. 先呈现置于尾部
+        const { x, y } = getPos(index);
+        const el = document.createElement('div');
+        el.className = 'node';
+        el.id = `node-${id}`;
+        el.innerText = val;
+        el.style.left = `${x}px`; 
+        el.style.top = `${y}px`;
+        el.style.opacity = '0';
+        el.style.transform = 'scale(0.5)';
+        document.getElementById('node-layer').appendChild(el);
+        
+        // 2. 逻辑入队并画线
+        heap.push({ val, id });
+        updateLines();
+
+        // 显现动画
+        await sleep(50);
+        el.style.opacity = '1';
+        el.style.transform = 'scale(1)';
+        await sleep(500); 
+
+        // 3. 向上交换（Sift Up）
+        let cur = heap.length - 1;
+        while (cur > 0) {
+            let p = Math.floor((cur - 1) / 2);
+            if (heap[cur].val > heap[p].val) {
+                await swap(cur, p);
+                cur = p;
+            } else break;
+        }
+        
+        setRandomValue();
+        setBtnState(false);
+    }
+
+    async function handlePop() {
+        if (heap.length === 0) return;
+        setBtnState(true);
+
+        // 1. 堆顶淡出
+        const topNodeDOM = document.getElementById(`node-${heap[0].id}`);
+        topNodeDOM.style.transform = 'scale(0.2)';
+        topNodeDOM.style.opacity = '0';
+        await sleep(400);
+        topNodeDOM.remove();
+
+        if (heap.length > 1) {
+            // 2. 尾节点移动到堆顶
+            const lastIdx = heap.length - 1;
+            const lastNode = heap[lastIdx];
+            const lastNodeDOM = document.getElementById(`node-${lastNode.id}`);
+            
+            heap[0] = lastNode;
+            heap.pop();
+
+            const rootPos = getPos(0);
+            lastNodeDOM.style.left = `${rootPos.x}px`;
+            lastNodeDOM.style.top = `${rootPos.y}px`;
+            lastNodeDOM.style.backgroundColor = 'var(--success)';
+
+            updateLines(); // 立即断开尾部连线
+            await sleep(600);
+            lastNodeDOM.style.backgroundColor = '';
+
+            // 3. 下沉 (Down-heap)
+            let cur = 0;
+            while (true) {
+                let L = cur * 2 + 1, R = cur * 2 + 2, max = cur;
+                if (L < heap.length && heap[L].val > heap[max].val) max = L;
+                if (R < heap.length && heap[R].val > heap[max].val) max = R;
+                if (max !== cur) {
+                    await swap(cur, max);
+                    cur = max;
+                } else break;
+            }
+        } else {
+            heap.pop();
+            updateLines();
+        }
+        setBtnState(false);
+    }
+
+    function setBtnState(disabled) {
+        document.getElementById('pushBtn').disabled = disabled;
+        document.getElementById('popBtn').disabled = disabled;
+    }
+</script>
+</body>
+</html>
