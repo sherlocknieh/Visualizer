@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>SVG 堆结构可视化</title>
+    <style>
+        :root {
+            --bg-color: #f8f9fa;
+            --node-fill: #3498db;
+            --node-text: #ffffff;
+            --line-stroke: #dfe6e9;
+            --highlight: #e74c3c;
+            --moving: #2ecc71;
+        }
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: var(--bg-color); margin: 0; padding: 20px; }
+        .controls { margin-bottom: 20px; background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; gap: 10px; }
+        input { width: 60px; padding: 8px; border: 2px solid #ddd; border-radius: 6px; text-align: center; font-size: 1.1em; }
+        button { padding: 8px 18px; cursor: pointer; border: none; border-radius: 6px; background: var(--node-fill); color: white; font-weight: bold; transition: 0.2s; }
+        button:hover { filter: brightness(1.1); }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        
+        svg {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            user-select: none;
+        }
+        /* 动画过渡效果 */
+        .node-group { transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+        circle { transition: fill 0.3s; stroke-width: 2; stroke: rgba(0,0,0,0.1); }
+        line { stroke: var(--line-stroke); stroke-width: 3; stroke-linecap: round; transition: all 0.6s; }
+    </style>
+</head>
+<body>
+
+    <h2>SVG 最大堆可视化</h2>
+    <div class="controls">
+        <input type="number" id="valInput">
+        <button id="pushBtn" onclick="handlePush()">插入 (Push)</button>
+        <button id="popBtn" onclick="handlePop()">取出 (Pop)</button>
+    </div>
+
+    <svg id="heapSvg" width="800" height="500">
+        <g id="lineGroup"></g>
+        <g id="nodeGroup"></g>
+    </svg>
+
+<script>
+    const svg = document.getElementById('heapSvg');
+    const lineGroup = document.getElementById('lineGroup');
+    const nodeGroup = document.getElementById('nodeGroup');
+    const inputEl = document.getElementById('valInput');
+    
+    let heap = []; // 存储 {val, id}
+    let nodeCounter = 0;
+    const RADIUS = 22;
+    const LEVEL_H = 80;
+    const CANVAS_W = 800;
+
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const setRandom = () => inputEl.value = Math.floor(Math.random() * 90) + 10;
+    setRandom();
+
+    function getCoords(index) {
+        const level = Math.floor(Math.log2(index + 1));
+        const pos = index - (Math.pow(2, level) - 1);
+        const step = CANVAS_W / Math.pow(2, level);
+        return { x: step * pos + step / 2, y: level * LEVEL_H + 60 };
+    }
+
+    // 绘制/更新所有连线
+    function drawLines() {
+        lineGroup.innerHTML = '';
+        for (let i = 1; i < heap.length; i++) {
+            const pIdx = Math.floor((i - 1) / 2);
+            const pPos = getCoords(pIdx);
+            const cPos = getCoords(i);
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line.setAttribute("x1", pPos.x); line.setAttribute("y1", pPos.y);
+            line.setAttribute("x2", cPos.x); line.setAttribute("y2", cPos.y);
+            line.id = `line-${heap[i].id}`;
+            lineGroup.appendChild(line);
+        }
+    }
+
+    function updateNodeView(index) {
+        const nodeData = heap[index];
+        const g = document.getElementById(`g-${nodeData.id}`);
+        const pos = getCoords(index);
+        g.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
+    }
+
+    async function swap(i, j) {
+        [heap[i], heap[j]] = [heap[j], heap[i]];
+        
+        const gI = document.getElementById(`g-${heap[i].id}`);
+        const gJ = document.getElementById(`g-${heap[j].id}`);
+        
+        gI.querySelector('circle').setAttribute('fill', 'var(--highlight)');
+        gJ.querySelector('circle').setAttribute('fill', 'var(--highlight)');
+
+        updateNodeView(i);
+        updateNodeView(j);
+        
+        await sleep(600);
+        gI.querySelector('circle').setAttribute('fill', 'var(--node-fill)');
+        gJ.querySelector('circle').setAttribute('fill', 'var(--node-fill)');
+    }
+
+    async function handlePush() {
+        const val = parseInt(inputEl.value);
+        if (isNaN(val)) return;
+        document.querySelectorAll('button').forEach(b => b.disabled = true);
+
+        const id = nodeCounter++;
+        const index = heap.length;
+        heap.push({ val, id });
+
+        // 创建 SVG 节点组
+        const pos = getCoords(index);
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.id = `g-${id}`;
+        g.setAttribute("class", "node-group");
+        g.setAttribute("transform", `translate(${pos.x}, ${pos.y}) scale(0)`);
+
+        g.innerHTML = `
+            <circle r="${RADIUS}" fill="var(--node-fill)" />
+            <text dy=".3em" text-anchor="middle" fill="white" font-weight="bold">${val}</text>
+        `;
+        nodeGroup.appendChild(g);
+        drawLines();
+
+        // 入场动画
+        requestAnimationFrame(() => g.setAttribute("transform", `translate(${pos.x}, ${pos.y}) scale(1)`));
+        await sleep(600);
+
+        // 上浮
+        let cur = heap.length - 1;
+        while (cur > 0) {
+            let p = Math.floor((cur - 1) / 2);
+            if (heap[cur].val > heap[p].val) {
+                await swap(cur, p);
+                cur = p;
+            } else break;
+        }
+
+        setRandom();
+        document.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
+
+    async function handlePop() {
+        if (heap.length === 0) return;
+        document.querySelectorAll('button').forEach(b => b.disabled = true);
+
+        // 1. 堆顶淡出
+        const topID = heap[0].id;
+        const topG = document.getElementById(`g-${topID}`);
+        topG.setAttribute("transform", topG.getAttribute("transform") + " scale(0)");
+        await sleep(400);
+        topG.remove();
+
+        if (heap.length > 1) {
+            // 2. 尾节点直接飞向堆顶
+            const lastNode = heap.pop();
+            const lastG = document.getElementById(`g-${lastNode.id}`);
+            
+            heap[0] = lastNode; // 逻辑覆盖
+            
+            lastG.querySelector('circle').setAttribute('fill', 'var(--moving)');
+            updateNodeView(0); // 触发飞行动画
+            drawLines(); // 重新画线（断开旧尾部）
+
+            await sleep(600);
+            lastG.querySelector('circle').setAttribute('fill', 'var(--node-fill)');
+
+            // 3. 下沉
+            let cur = 0;
+            while (true) {
+                let L = cur * 2 + 1, R = cur * 2 + 2, max = cur;
+                if (L < heap.length && heap[L].val > heap[max].val) max = L;
+                if (R < heap.length && heap[R].val > heap[max].val) max = R;
+                if (max !== cur) {
+                    await swap(cur, max);
+                    cur = max;
+                } else break;
+            }
+        } else {
+            heap.pop();
+            drawLines();
+        }
+
+        document.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
+</script>
+</body>
+</html>
